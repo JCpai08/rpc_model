@@ -39,3 +39,21 @@
 
 # debug information files
 *.dwo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Generated pipeline outputs (run main.py to regenerate)
+data/orbit.csv
+data/attitude.csv
+data/camera_angles.csv
+data/scan_times.csv
+rpc_coefficients.json
+residuals.png
