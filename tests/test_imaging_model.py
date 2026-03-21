@@ -15,7 +15,7 @@ from rpc_model.coord_transform import (
     j2000_to_ecef_matrix,
     rotation_matrix_to_quaternion,
 )
-from rpc_model.constants import GM, WGS84_A, OMEGA_E, GMST_J2000
+from rpc_model.constants import GM, WGS84_A
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +54,14 @@ def _make_model(n_rows=200, n_cols=100, alt=500_000.0, fov_half_deg=3.0,
 
     # Compute ECEF orbit positions
     t_j2k_arr = orb_t + t_j2000_epoch
-    orb_pos = np.array([j2000_to_ecef_matrix(tj) @ _orbit_pos(t) for t, tj in zip(orb_t, t_j2k_arr)])
-    orb_vel = np.array([j2000_to_ecef_matrix(tj) @ _orbit_vel(t) for t, tj in zip(orb_t, t_j2k_arr)])
+    orb_pos = np.array([
+        j2000_to_ecef_matrix(julian_day_offset=tj / 86400.0) @ _orbit_pos(t)
+        for t, tj in zip(orb_t, t_j2k_arr)
+    ])
+    orb_vel = np.array([
+        j2000_to_ecef_matrix(julian_day_offset=tj / 86400.0) @ _orbit_vel(t)
+        for t, tj in zip(orb_t, t_j2k_arr)
+    ])
 
     orbit_interp = OrbitInterpolator(orb_t, orb_pos, orb_vel, order=8)
 
@@ -83,7 +89,7 @@ def _make_model(n_rows=200, n_cols=100, alt=500_000.0, fov_half_deg=3.0,
         orbit_interp=orbit_interp,
         attitude_interp=attitude_interp,
         pointing_angles=pointing_angles,
-        j2000_offset=t_j2000_epoch,
+        julian_day_base=t_j2000_epoch / 86400.0,
     )
     return model
 

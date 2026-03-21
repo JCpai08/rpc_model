@@ -247,21 +247,23 @@ class AttitudeInterpolator:
         q = self.get_quaternion(np.array([float(t)]))[0]
         return quaternion_to_rotation_matrix(q)
 
-    def get_rotation_body2ecef(self, t, t_j2000=None):
+    def get_rotation_body2ecef(self, t, julian_day_offset=None,
+                               julian_century=None):
         """3 × 3 rotation matrix body → ECEF at scalar time *t*.
 
         Parameters
         ----------
         t : float
             Imaging epoch time [s] (same reference as *times* passed to __init__).
-        t_j2000 : float or None
-            Time [s] after J2000 epoch for the ECEF rotation.  If *None*,
-            *t* is used directly as the J2000 offset (valid when the orbit
-            epoch coincides with J2000).
+        julian_day_offset, julian_century : float or None
+            Time parameters for ZXZ J2000→ECEF conversion.
+
+            Time type note:
+            source data time tags may later be confirmed as UTC/UT1/GPS.
+            Keep ``julian_day_offset`` explicit when available.
         """
         from .coord_transform import j2000_to_ecef_matrix
-        if t_j2000 is None:
-            t_j2000 = t
         R_b2j = self.get_rotation_body2j2000(t)
-        R_j2e = j2000_to_ecef_matrix(t_j2000)
+        R_j2e = j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
+                         julian_century=julian_century)
         return R_j2e @ R_b2j

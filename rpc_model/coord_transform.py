@@ -2,7 +2,7 @@
 Coordinate transformations:
 
 * WGS84 geodetic (lon, lat, h) ↔ ECEF XYZ
-* J2000 ECI ↔ ECEF via Greenwich Mean Sidereal Time (simplified rotation model)
+* J2000 ECI ↔ ECEF via a 3-angle Z-X-Z chain
 * Quaternion → rotation matrix
 
 Reference conventions
@@ -12,14 +12,13 @@ Reference conventions
   Intermediate Pole.
 - ECEF (ITRF) rotates with the Earth; its x-axis points toward the Greenwich
   meridian.
-- The transformation J2000 → ECEF uses only Earth rotation (GMST).  For this
-  exercise precession, nutation, and polar motion are omitted.
+- The transformation J2000 → ECEF uses the project ZXZ angle-chain model.
 - Quaternions follow the scalar-first convention: q = [qw, qx, qy, qz].
   The rotation matrix R satisfies  r_target = R · r_source.
 """
 
 import numpy as np
-from .constants import WGS84_A, WGS84_B, WGS84_E2, OMEGA_E, GMST_J2000
+from .constants import WGS84_A, WGS84_B, WGS84_E2
 
 
 # ---------------------------------------------------------------------------
@@ -98,13 +97,8 @@ def ecef_to_geodetic(X, Y, Z):
 
 
 # ---------------------------------------------------------------------------
-# J2000 (ECI) ↔ ECEF  (Earth-rotation only, simplified GMST model)
+# J2000 (ECI) ↔ ECEF  (ZXZ angle-chain model)
 # ---------------------------------------------------------------------------
-
-def _gmst(t_sec):
-    """Greenwich Mean Sidereal Time [rad] at *t_sec* seconds after J2000 epoch."""
-    return GMST_J2000 + OMEGA_E * t_sec
-
 
 def rot_z(angle):
     """Active rotation matrix around the Z-axis by *angle* [rad].
@@ -117,32 +111,68 @@ def rot_z(angle):
                      [0.0, 0.0, 1.0]])
 
 
-def j2000_to_ecef_matrix(t_sec):
-    """3 × 3 rotation matrix from J2000 to ECEF at *t_sec* seconds after J2000.
+def rot_x(angle):
+    """Active rotation matrix around the X-axis by *angle* [rad]."""
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([[1.0, 0.0, 0.0],
+                     [0.0, c, -s],
+                     [0.0, s,  c]])
 
-    ECEF = R_z(−GMST) · ECI, so we rotate the ECI frame clockwise by GMST.
+
+def j2000_to_ecef_matrix(julian_day_offset, julian_century=None):
+    """3 × 3 rotation matrix from J2000 to ECEF using the ZXZ model.
+
+    This implements ``plan/coord_transform_J2000_ECES.md`` directly:
+
+      alpha_0 = 0.00 - 0.641 T
+      delta_0 = 90.00 - 0.557 T
+      W  = 190.147 + 360.9856235 d
+
+      R_j2e = M_W · M_(90° - delta_0) · M_(alpha_0 + 90°)
+
+    Parameters
+    ----------
+    julian_day_offset : float
+        Day offset ``d`` from J2000 epoch.
+    julian_century : float or None
+        Julian centuries ``T`` from J2000. If None, ``T = d / 36525``.
+
+    Time type note
+    --------------
+    In strict astronomy workflows, ``d``/``T`` are typically based on UT1.
+    If current data time tags are UTC/GPS/other, this mapping should be
+    adjusted later once the exact time type is confirmed.
     """
-    theta = _gmst(t_sec)
-    # R_z(-theta) rotates ECI vectors into ECEF
-    c, s = np.cos(theta), np.sin(theta)
-    return np.array([[c,  s, 0.0],
-                     [-s, c, 0.0],
-                     [0.0, 0.0, 1.0]])
+    d = float(julian_day_offset)
+    T = d / 36525.0 if julian_century is None else float(julian_century)
+
+    alpha0_deg = 0.00 - 0.641 * T
+    delta0_deg = 90.00 - 0.557 * T
+    w_deg = 190.147 + 360.9856235 * d
+
+    a1 = np.deg2rad(alpha0_deg + 90.0)
+    a2 = np.deg2rad(90.0 - delta0_deg)
+    a3 = np.deg2rad(w_deg)
+    return rot_z(a3) @ rot_x(a2) @ rot_z(a1)
 
 
-def ecef_to_j2000_matrix(t_sec):
+def ecef_to_j2000_matrix(julian_day_offset, julian_century=None):
     """3 × 3 rotation matrix from ECEF to J2000 (transpose of j2000_to_ecef_matrix)."""
-    return j2000_to_ecef_matrix(t_sec).T
+    return j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
+                                julian_century=julian_century).T
 
 
-def j2000_to_ecef(pos_j2000, t_sec):
+def j2000_to_ecef(pos_j2000, julian_day_offset, julian_century=None):
     """Transform a position vector from J2000 to ECEF.
 
     Parameters
     ----------
     pos_j2000 : array-like, shape (3,) or (N, 3)
-    t_sec : float or array of shape (N,)
-        Seconds after J2000 epoch (2000-01-01 11:58:55.816 UTC).
+    julian_day_offset : float or array of shape (N,)
+        Day offset ``d`` from J2000 epoch.
+    julian_century : float or array of shape (N,) or None
+        Julian centuries ``T`` from J2000. If None, each sample uses
+        ``T = d / 36525``.
 
     Returns
     -------
@@ -151,26 +181,64 @@ def j2000_to_ecef(pos_j2000, t_sec):
     pos = np.asarray(pos_j2000, dtype=float)
     scalar = pos.ndim == 1
     if scalar:
-        return j2000_to_ecef_matrix(t_sec) @ pos
-    # Vectorised over multiple positions / times
-    t_sec = np.asarray(t_sec, dtype=float)
+        return j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
+                                    julian_century=julian_century) @ pos
+    # Vectorised over multiple positions / day offsets
     result = np.empty_like(pos)
+    jd_arr = np.asarray(julian_day_offset, dtype=float)
+    jc_arr = None if julian_century is None else np.asarray(julian_century, dtype=float)
     for i in range(len(pos)):
-        result[i] = j2000_to_ecef_matrix(t_sec[i]) @ pos[i]
+        if np.ndim(jd_arr) > 0:
+            jd_i = jd_arr[i]
+        else:
+            jd_i = julian_day_offset
+        if jc_arr is not None and np.ndim(jc_arr) > 0:
+            jc_i = jc_arr[i]
+        else:
+            jc_i = julian_century
+        result[i] = j2000_to_ecef_matrix(julian_day_offset=jd_i,
+                                         julian_century=jc_i) @ pos[i]
     return result
 
 
-def ecef_to_j2000(pos_ecef, t_sec):
+def ecef_to_j2000(pos_ecef, julian_day_offset, julian_century=None):
     """Transform a position vector from ECEF to J2000."""
     pos = np.asarray(pos_ecef, dtype=float)
     scalar = pos.ndim == 1
     if scalar:
-        return ecef_to_j2000_matrix(t_sec) @ pos
-    t_sec = np.asarray(t_sec, dtype=float)
+        return ecef_to_j2000_matrix(julian_day_offset=julian_day_offset,
+                                    julian_century=julian_century) @ pos
     result = np.empty_like(pos)
+    jd_arr = np.asarray(julian_day_offset, dtype=float)
+    jc_arr = None if julian_century is None else np.asarray(julian_century, dtype=float)
     for i in range(len(pos)):
-        result[i] = ecef_to_j2000_matrix(t_sec[i]) @ pos[i]
+        if np.ndim(jd_arr) > 0:
+            jd_i = jd_arr[i]
+        else:
+            jd_i = julian_day_offset
+        if jc_arr is not None and np.ndim(jc_arr) > 0:
+            jc_i = jc_arr[i]
+        else:
+            jc_i = julian_century
+        result[i] = ecef_to_j2000_matrix(julian_day_offset=jd_i,
+                                         julian_century=jc_i) @ pos[i]
     return result
+
+
+def attitude_j2000_to_ecef_quaternion(q_body_to_j2000, julian_day_offset,
+                                      julian_century=None):
+    """Convert body→J2000 quaternion to body→ECEF quaternion.
+
+    Time notes
+    ----------
+    Same as :func:`j2000_to_ecef_matrix`: current project may still need to
+    refine whether time tags are UTC/UT1/GPS and the exact epoch mapping.
+    """
+    r_b2j = quaternion_to_rotation_matrix(q_body_to_j2000)
+    r_j2e = j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
+                                 julian_century=julian_century)
+    r_b2e = r_j2e @ r_b2j
+    return rotation_matrix_to_quaternion(r_b2e)
 
 
 # ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@ End-to-end pipeline: terrain-independent RPC model construction.
 
 Steps
 -----
-1. Generate (or load) synthetic input data.
-2. Load orbit, attitude, camera pointing, and scan-time data.
+1. Load NAD raw data from config.json.
+2. Parse orbit, attitude, camera pointing, and scan-time data.
 3. Instantiate the strict pushbroom imaging model.
 4. Build a 3-D ground control grid via backward projection.
 5. Fit RPC model coefficients (least squares).
@@ -13,7 +13,7 @@ Steps
 
 Usage
 -----
-    python main.py [--no-plot]
+    python main.py [--no-plot] [--nad-config path/to/config.json]
 """
 
 import os
@@ -31,6 +31,7 @@ from rpc_model import (
     PushbroomImagingModel,
     build_control_grid,
     RPCSolver,
+    load_nad_bundle,
 )
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -40,66 +41,63 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 # Data loading helpers
 # ---------------------------------------------------------------------------
 
-def load_orbit(path):
-    d = np.loadtxt(path, delimiter=",", skiprows=1)
-    times     = d[:, 0]
-    positions = d[:, 1:4]
-    velocities = d[:, 4:7]
-    return times, positions, velocities
 
+def load_nad_raw_dataset(data_dir, nad_config_path=None):
+    bundle = load_nad_bundle(data_dir=data_dir, config_path=nad_config_path)
+    gps = bundle["orbit"]
+    att = bundle["attitude"]
+    imaging = bundle["imaging_time"]
+    cbr = bundle["cbr"]
 
-def load_attitude(path):
-    d = np.loadtxt(path, delimiter=",", skiprows=1)
-    times = d[:, 0]
-    quats = d[:, 1:5]
-    return times, quats
+    orb_times_abs, orb_pos, orb_vel = gps.to_arrays()
+    att_times_abs, att_quats = att.to_arrays()
+    scan_times_abs = imaging.times
+    pointing_angles = cbr.angle_1
 
+    t_ref = float(scan_times_abs[0])
+    orb_times = orb_times_abs - t_ref
+    att_times = att_times_abs - t_ref
+    scan_times = scan_times_abs - t_ref
+    t_j2000_epoch = t_ref
 
-def load_camera_angles(path):
-    d = np.loadtxt(path, delimiter=",", skiprows=1)
-    return d[:, 1]   # angle_rad for each column
-
-
-def load_scan_times(path):
-    d = np.loadtxt(path, delimiter=",", skiprows=1)
-    return d[:, 1]   # time_s for each row
+    return orb_times, orb_pos, orb_vel, att_times, att_quats, pointing_angles, scan_times, t_j2000_epoch
 
 
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def main(no_plot=False):
+def main(no_plot=False, nad_config_path=None):
     print("=" * 65)
     print("  Terrain-independent RPC model construction pipeline")
     print("=" * 65)
 
     # ------------------------------------------------------------------
-    # Step 0: ensure synthetic data exists
+    # Step 0: resolve config path
     # ------------------------------------------------------------------
-    orbit_path  = os.path.join(DATA_DIR, "orbit.csv")
-    att_path    = os.path.join(DATA_DIR, "attitude.csv")
-    cam_path    = os.path.join(DATA_DIR, "camera_angles.csv")
-    scan_path   = os.path.join(DATA_DIR, "scan_times.csv")
-
-    if not all(os.path.exists(p) for p in [orbit_path, att_path, cam_path, scan_path]):
-        print("\n[Step 0] Generating synthetic input data …")
-        from data.simulate_data import generate
-        meta = generate(out_dir=DATA_DIR)
-        T_J2000_EPOCH = meta["T_J2000_EPOCH"]
-    else:
-        print("\n[Step 0] Data files already exist – skipping generation.")
-        # Read epoch from orbit file header; we use a fixed known value
-        T_J2000_EPOCH = 788_918_400.0
+    default_nad_config_path = os.path.join(DATA_DIR, "config.json")
+    resolved_nad_config_path = nad_config_path or default_nad_config_path
+    if not os.path.exists(resolved_nad_config_path):
+        raise FileNotFoundError(
+            f"NAD config file not found: {resolved_nad_config_path}. "
+            "Please provide --nad-config or create data/config.json."
+        )
 
     # ------------------------------------------------------------------
     # Step 1: load data
     # ------------------------------------------------------------------
     print("\n[Step 1] Loading input data …")
-    orb_times, orb_pos, orb_vel = load_orbit(orbit_path)
-    att_times, att_quats        = load_attitude(att_path)
-    pointing_angles             = load_camera_angles(cam_path)
-    scan_times                  = load_scan_times(scan_path)
+    print(f"  Source: NAD raw text files via config ({resolved_nad_config_path})")
+    (
+        orb_times,
+        orb_pos,
+        orb_vel,
+        att_times,
+        att_quats,
+        pointing_angles,
+        scan_times,
+        T_J2000_EPOCH,
+    ) = load_nad_raw_dataset(DATA_DIR, nad_config_path=resolved_nad_config_path)
 
     print(f"  Orbit    : {len(orb_times)} samples,  "
           f"t ∈ [{orb_times[0]:.1f}, {orb_times[-1]:.1f}] s")
@@ -127,7 +125,7 @@ def main(no_plot=False):
         orbit_interp=orbit_interp,
         attitude_interp=attitude_interp,
         pointing_angles=pointing_angles,
-        j2000_offset=T_J2000_EPOCH,   # scan_times are relative; add epoch for GMST
+        julian_day_base=T_J2000_EPOCH / 86400.0,
     )
 
     # Quick sanity check: backward-project corner pixels
@@ -240,5 +238,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RPC model construction pipeline")
     parser.add_argument("--no-plot", action="store_true",
                         help="Skip the residual scatter plot")
+    parser.add_argument("--nad-config", default=None,
+                        help="JSON config file for NAD raw file paths")
     args = parser.parse_args()
-    main(no_plot=args.no_plot)
+    main(no_plot=args.no_plot, nad_config_path=args.nad_config)

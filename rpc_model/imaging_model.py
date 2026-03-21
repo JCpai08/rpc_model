@@ -110,19 +110,22 @@ class PushbroomImagingModel:
     pointing_angles : array-like, shape (N_cols,)
         Cross-track pointing angle [rad] for each pixel column.
         Positive angles point to the right (increasing Y_b).
-    j2000_offset : float
-        Offset added to *scan_times* before computing the J2000→ECEF
-        rotation, i.e. ``t_j2000 = t + j2000_offset``.  Set to 0 when the
-        time reference already is seconds from the J2000 epoch.
+    julian_day_base : float or None
+        Day offset ``d0`` from J2000 corresponding to ``t=0`` of ``scan_times``.
+        Actual day offset at time ``t`` is ``d = d0 + t / 86400``.
+
+        Time type note:
+        data timestamps may be UTC/UT1/GPS depending on source metadata.
+        This parameter keeps epoch mapping explicit for later adjustment.
     """
 
     def __init__(self, scan_times, orbit_interp, attitude_interp,
-                 pointing_angles, j2000_offset=0.0):
+                 pointing_angles, julian_day_base=0.0):
         self.scan_times = np.asarray(scan_times, dtype=float)
         self.orbit = orbit_interp
         self.attitude = attitude_interp
         self.pointing_angles = np.asarray(pointing_angles, dtype=float)
-        self.j2000_offset = float(j2000_offset)
+        self.julian_day_base = float(julian_day_base)
 
         self.n_rows = len(self.scan_times)
         self.n_cols = len(self.pointing_angles)
@@ -139,8 +142,8 @@ class PushbroomImagingModel:
     def _sat_state(self, t):
         """Return (P_s [m], R_b2e [3×3]) at time *t* [s]."""
         P_s = self.orbit.get_position(np.array([t]))[0]
-        t_j2000 = t + self.j2000_offset
-        R_b2e = self.attitude.get_rotation_body2ecef(t, t_j2000=t_j2000)
+        d = self.julian_day_base + float(t) / 86400.0
+        R_b2e = self.attitude.get_rotation_body2ecef(t, julian_day_offset=d)
         return P_s, R_b2e
 
     def _col_to_look_body(self, col):

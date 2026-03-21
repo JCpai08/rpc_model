@@ -15,6 +15,7 @@ from rpc_model.coord_transform import (
     j2000_to_ecef_matrix,
     quaternion_to_rotation_matrix,
     rotation_matrix_to_quaternion,
+    attitude_j2000_to_ecef_quaternion,
 )
 
 
@@ -74,27 +75,31 @@ class TestGeodeticECEF:
 class TestJ2000ECEF:
     def test_rotation_matrix_orthogonal(self):
         """j2000_to_ecef_matrix must be orthogonal (R · Rᵀ = I)."""
-        for t in [0.0, 3600.0, 86400.0, 1e7]:
-            R = j2000_to_ecef_matrix(t)
+        for d in [0.0, 3600.0 / 86400.0, 1.0, 1000.0]:
+            R = j2000_to_ecef_matrix(d)
             np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-14)
             np.testing.assert_allclose(np.linalg.det(R), 1.0, atol=1e-14)
 
     def test_j2000_ecef_round_trip(self):
         """ecef_to_j2000(j2000_to_ecef(v)) == v."""
         v = np.array([1_000_000.0, 2_000_000.0, 3_000_000.0])
-        for t in [0.0, 1000.0, 86400.0]:
-            v_ecef = j2000_to_ecef(v, t)
-            v_back = ecef_to_j2000(v_ecef, t)
+        for d in [0.0, 1000.0 / 86400.0, 1.0]:
+            v_ecef = j2000_to_ecef(v, d)
+            v_back = ecef_to_j2000(v_ecef, d)
             np.testing.assert_allclose(v_back, v, atol=1e-6)
 
-    def test_earth_rotation_rate(self):
-        """After one sidereal day the ECEF frame should be close to aligned."""
-        sidereal_day = 2.0 * np.pi / (7.292_115_0e-5)   # ~86 164 s
-        v = np.array([1.0, 0.0, 0.0])
-        R0 = j2000_to_ecef_matrix(0.0)
-        R1 = j2000_to_ecef_matrix(sidereal_day)
-        # The two rotation matrices should be nearly identical
-        np.testing.assert_allclose(R1, R0, atol=1e-8)
+    def test_zxz_matrix_orthogonal(self):
+        """ZXZ J2000→ECEF matrix should be orthogonal with det=+1."""
+        R = j2000_to_ecef_matrix(4800.25)
+        np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-14)
+        np.testing.assert_allclose(np.linalg.det(R), 1.0, atol=1e-14)
+
+    def test_explicit_century_matches_default(self):
+        """Explicit T should match default T=d/36525 behavior."""
+        d = 12345.6 / 86400.0
+        R0 = j2000_to_ecef_matrix(d)
+        R1 = j2000_to_ecef_matrix(d, julian_century=d / 36525.0)
+        np.testing.assert_allclose(R0, R1, atol=1e-14)
 
 
 # ---------------------------------------------------------------------------
@@ -142,3 +147,16 @@ class TestQuaternion:
         R = quaternion_to_rotation_matrix(q)
         np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-14)
         np.testing.assert_allclose(np.linalg.det(R), 1.0, atol=1e-14)
+
+    def test_attitude_j2000_to_ecef_quaternion_consistency(self):
+        """Quaternion conversion should match matrix composition R_j2e @ R_b2j."""
+        q_b2j = np.array([0.5, 0.5, 0.5, 0.5])
+        R_b2j = quaternion_to_rotation_matrix(q_b2j)
+        d = 12345.6 / 86400.0
+        R_j2e = j2000_to_ecef_matrix(d)
+
+        q_b2e = attitude_j2000_to_ecef_quaternion(q_b2j, julian_day_offset=d)
+        R_b2e_from_q = quaternion_to_rotation_matrix(q_b2e)
+        R_b2e_expected = R_j2e @ R_b2j
+
+        np.testing.assert_allclose(R_b2e_from_q, R_b2e_expected, atol=1e-12)

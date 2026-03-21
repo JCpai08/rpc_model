@@ -121,8 +121,18 @@ class TestRPCSolverWithImagingModel:
 
         t_j2000_epoch = 788_918_400.0
         orb_t = np.arange(-margin, scan_times[-1] + margin + 1.0, 5.0)
-        orb_pos = np.array([j2000_to_ecef_matrix(t + t_j2000_epoch) @ orbit_j2000(t) for t in orb_t])
-        orb_vel = np.array([j2000_to_ecef_matrix(t + t_j2000_epoch) @ vel_j2000(t) for t in orb_t])
+        orb_pos = np.array([
+            j2000_to_ecef_matrix(
+                julian_day_offset=(t + t_j2000_epoch) / 86400.0
+            ) @ orbit_j2000(t)
+            for t in orb_t
+        ])
+        orb_vel = np.array([
+            j2000_to_ecef_matrix(
+                julian_day_offset=(t + t_j2000_epoch) / 86400.0
+            ) @ vel_j2000(t)
+            for t in orb_t
+        ])
 
         att_t = np.arange(-margin, scan_times[-1] + margin + 0.5, 0.5)
         quats = []
@@ -144,7 +154,7 @@ class TestRPCSolverWithImagingModel:
             orbit_interp=OrbitInterpolator(orb_t, orb_pos, orb_vel, order=8),
             attitude_interp=AttitudeInterpolator(att_t, np.array(quats)),
             pointing_angles=pointing_angles,
-            j2000_offset=t_j2000_epoch,
+            julian_day_base=t_j2000_epoch / 86400.0,
         )
 
         # Build training and check grids

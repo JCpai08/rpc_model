@@ -15,7 +15,7 @@ Scenario
 * Ground-sample distance: ~5 m (along-track); FOV ±3° cross-track.
 * Orbit epoch: t = 0 s aligned with the start of the imaging window.
   The J2000 time reference is set to T_J2000 = 788_918_400 s after J2000
-  (approximately 2025-01-01 00:00 UTC) for a realistic GMST calculation.
+    (approximately 2025-01-01 00:00 UTC) for a realistic ZXZ time input.
 """
 
 import os
@@ -25,7 +25,7 @@ import numpy as np
 # Allow running as a script from any directory
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from rpc_model.constants import GM, OMEGA_E, WGS84_A
+from rpc_model.constants import GM, WGS84_A
 from rpc_model.coord_transform import (
     j2000_to_ecef_matrix,
     rotation_matrix_to_quaternion,
@@ -188,11 +188,11 @@ def generate(out_dir=None, seed=42):
 
     # Convert J2000 positions to ECEF (WGS84) for the orbit file
     r_ecef = np.array([
-        j2000_to_ecef_matrix(t) @ r_j2k[i]
+        j2000_to_ecef_matrix(julian_day_offset=t / 86400.0) @ r_j2k[i]
         for i, t in enumerate(t_j2000_orbit)
     ])
     v_ecef = np.array([
-        j2000_to_ecef_matrix(t) @ v_j2k[i]
+        j2000_to_ecef_matrix(julian_day_offset=t / 86400.0) @ v_j2k[i]
         for i, t in enumerate(t_j2000_orbit)
     ])
 

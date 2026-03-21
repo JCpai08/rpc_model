@@ -57,3 +57,5 @@ data/camera_angles.csv
 data/scan_times.csv
 rpc_coefficients.json
 residuals.png
+
+data/*
