@@ -75,7 +75,17 @@ class AttitudeData:
     group_number: int
     samples: List[AttitudeSample]
 
+    
     def to_arrays(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Returns
+        -------
+        times: np.ndarray
+            Time codes
+        quaternions: np.ndarray
+            Quaternions
+        
+        """
         times = np.array([s.time_code for s in self.samples], dtype=float)
         quaternions = np.array([[s.q1, s.q2, s.q3, s.q4] for s in self.samples], dtype=float)
         return times, quaternions
@@ -319,47 +329,7 @@ class NADDataParser:
             vyaw=float(mapping.get("Vyaw", 0.0)),
         )
 
-    @staticmethod
-    def parse_example_rpc(path: str | Path) -> RPCTextData:
-        lines = _clean_lines(Path(path))
-        scalar: Dict[str, float] = {}
-        line_num = np.zeros(20, dtype=float)
-        line_den = np.zeros(20, dtype=float)
-        samp_num = np.zeros(20, dtype=float)
-        samp_den = np.zeros(20, dtype=float)
-
-        for line in lines:
-            if ":" not in line:
-                continue
-            key, raw = [x.strip() for x in line.split(":", 1)]
-            match = _FLOAT_RE.search(raw)
-            if match is None:
-                continue
-            value = float(match.group())
-
-            if key.startswith("LINE_NUM_COEFF_"):
-                idx = int(key.split("_")[-1]) - 1
-                line_num[idx] = value
-            elif key.startswith("LINE_DEN_COEFF_"):
-                idx = int(key.split("_")[-1]) - 1
-                line_den[idx] = value
-            elif key.startswith("SAMP_NUM_COEFF_"):
-                idx = int(key.split("_")[-1]) - 1
-                samp_num[idx] = value
-            elif key.startswith("SAMP_DEN_COEFF_"):
-                idx = int(key.split("_")[-1]) - 1
-                samp_den[idx] = value
-            else:
-                scalar[key] = value
-
-        return RPCTextData(
-            scalar=scalar,
-            line_num_coeff=line_num,
-            line_den_coeff=line_den,
-            samp_num_coeff=samp_num,
-            samp_den_coeff=samp_den,
-        )
-
+    
 
 def load_nad_bundle(
     data_dir: str | Path | None = None,
@@ -381,17 +351,16 @@ def load_nad_bundle(
     Returns
     -------
     dict
-        Keys: orbit, attitude, imaging_time, cbr, nad_txt, example_rpc.
+        Keys: gps, attitude, imaging_time, nad_cbr, nad_txt, example_rpc.
     """
     if config is None:
         config = NADFileConfig.from_json(config_path) if config_path else NADFileConfig()
 
     paths = config.resolve(data_dir)
     return {
-        "orbit": NADDataParser.parse_gps(paths["gps"]),
+        "gps": NADDataParser.parse_gps(paths["gps"]),
         "attitude": NADDataParser.parse_attitude(paths["attitude"]),
         "imaging_time": NADDataParser.parse_imaging_time(paths["imaging_time"]),
-        "cbr": NADDataParser.parse_cbr(paths["cbr"]),
-        "nad_txt": NADDataParser.parse_nad_txt(paths["nad_txt"]),
-        "example_rpc": NADDataParser.parse_example_rpc(paths["example_rpc"]),
+        "nad_cbr": NADDataParser.parse_cbr(paths["cbr"]),
+        "nad_txt": NADDataParser.parse_nad_txt(paths["nad_txt"])
     }

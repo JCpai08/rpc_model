@@ -1,0 +1,9 @@
+{
+  "data_dir": "data",
+  "gps": "DX_ZY3_NAD_gps.txt",
+  "attitude": "DX_ZY3_NAD_att.txt",
+  "imaging_time": "DX_ZY3_NAD_imagingTime.txt",
+  "nad_cbr": "NAD.cbr",
+  "nad_txt": "NAD.txt",
+  "example_rpc": "example_rpc.txt"
+}
