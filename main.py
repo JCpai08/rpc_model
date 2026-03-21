@@ -27,6 +27,8 @@ from rpc_model import (
     AttitudeData,
     ImagingTimeData,
     CBRData,
+    datetime_to_julian_params,
+    attitude_j2000_to_ecef_quaternion,
 )
 
 
@@ -107,11 +109,24 @@ def main(no_plot=False, nad_config_path=None):
         print(f"    angle_2 range    : [{np.min(nad_cbr.angle_2):.6f}, {np.max(nad_cbr.angle_2):.6f}]")
 
     
-    # test coordinate transformations(J2000 ECI ↔ ECEF)
-    print("\nTest Coordinate transformations …")
-    print(att.samples[0].date_time)  # sanity check: print first attitude sample's timestamp
-    from rpc_model import j2000_to_ecef, ecef_to_j2000
-    print(j2000_to_ecef(np.array([0, 0, 0]), 0))
+    # test attitude coordinate transformation (J2000 quaternion -> ECEF quaternion)
+    print("\n[Step 1.5] Test attitude transform (J2000 -> ECEF) …")
+    if len(att.samples) > 0:
+        first_att = att.samples[0]
+        first_time = first_att.date_time
+        q_j2000 = np.array([first_att.q1, first_att.q2, first_att.q3, first_att.q4], dtype=float)
+
+        jd, T, d = datetime_to_julian_params(first_time)
+        q_ecef = attitude_j2000_to_ecef_quaternion(q_j2000, imaging_time=first_time)
+
+        print(f"  first date_time    : {first_time}")
+        print(f"  julian_day (JD)    : {jd:.9f}")
+        print(f"  julian_century (T) : {T:.12e}")
+        print(f"  julian_offset (d)  : {d:.9f}")
+        print(f"  q_j2000            : {q_j2000}")
+        print(f"  q_ecef             : {q_ecef}")
+    else:
+        print("  No attitude samples found; skip attitude transform demo.")
 
     # ------------------------------------------------------------------
     # Step 2: build interpolators (orbit + attitude)

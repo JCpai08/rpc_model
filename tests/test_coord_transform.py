@@ -12,6 +12,7 @@ from rpc_model.coord_transform import (
     ecef_to_geodetic,
     j2000_to_ecef,
     ecef_to_j2000,
+    datetime_to_julian_params,
     j2000_to_ecef_matrix,
     quaternion_to_rotation_matrix,
     rotation_matrix_to_quaternion,
@@ -73,6 +74,13 @@ class TestGeodeticECEF:
 # ---------------------------------------------------------------------------
 
 class TestJ2000ECEF:
+    def test_datetime_to_julian_j2000_epoch(self):
+        """J2000 epoch (2000-01-01 12:00:00) should map to d=0, T=0."""
+        jd, T, d = datetime_to_julian_params("2000 01 01 12:00:00.000000")
+        np.testing.assert_allclose(jd, 2451545.0, atol=1e-9)
+        np.testing.assert_allclose(d, 0.0, atol=1e-12)
+        np.testing.assert_allclose(T, 0.0, atol=1e-15)
+
     def test_rotation_matrix_orthogonal(self):
         """j2000_to_ecef_matrix must be orthogonal (R · Rᵀ = I)."""
         for d in [0.0, 3600.0 / 86400.0, 1.0, 1000.0]:
@@ -160,3 +168,20 @@ class TestQuaternion:
         R_b2e_expected = R_j2e @ R_b2j
 
         np.testing.assert_allclose(R_b2e_from_q, R_b2e_expected, atol=1e-12)
+
+    def test_attitude_j2000_to_ecef_quaternion_from_imaging_time(self):
+        """Using imaging_time should match explicit d/T conversion path."""
+        q_b2j = np.array([0.5, 0.5, 0.5, 0.5])
+        time_text = "2013 03 07 04:25:56.250000"
+        _, T, d = datetime_to_julian_params(time_text)
+
+        q_from_time = attitude_j2000_to_ecef_quaternion(q_b2j, imaging_time=time_text)
+        q_from_dt = attitude_j2000_to_ecef_quaternion(
+            q_b2j,
+            julian_day_offset=d,
+            julian_century=T,
+        )
+
+        diff_pos = np.linalg.norm(q_from_time - q_from_dt)
+        diff_neg = np.linalg.norm(q_from_time + q_from_dt)
+        assert min(diff_pos, diff_neg) < 1e-12

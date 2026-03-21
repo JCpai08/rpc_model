@@ -18,6 +18,7 @@ Reference conventions
 """
 
 import numpy as np
+from datetime import datetime
 from .constants import WGS84_A, WGS84_B, WGS84_E2
 
 
@@ -119,6 +120,86 @@ def rot_x(angle):
                      [0.0, s,  c]])
 
 
+def datetime_to_julian_params(imaging_time):
+    """Convert imaging time to Julian parameters (JD, T, d).
+
+    Parameters
+    ----------
+    imaging_time : str or datetime
+        UTC timestamp. Supported string formats include:
+        - ``YYYY MM DD HH:MM:SS(.ffffff)``
+        - ``YYYY-MM-DD HH:MM:SS(.ffffff)``
+        - ``YYYY/MM/DD HH:MM:SS(.ffffff)``
+
+    Returns
+    -------
+    tuple[float, float, float]
+        ``(jd, T, d)`` where:
+        - ``jd``: Julian day
+        - ``T``: Julian century from J2000.0
+        - ``d``: Julian day offset from J2000.0
+    """
+    if isinstance(imaging_time, datetime):
+        dt = imaging_time
+    else:
+        text = str(imaging_time).strip()
+        text = text.replace("T", " ")
+        date_part, *time_part = text.split()
+        if "-" in date_part:
+            y, m, d0 = [int(x) for x in date_part.split("-")]
+        elif "/" in date_part:
+            y, m, d0 = [int(x) for x in date_part.split("/")]
+        else:
+            if len(text.split()) < 4:
+                raise ValueError(f"Unsupported imaging_time format: {imaging_time}")
+            parts = text.split()
+            y, m, d0 = [int(x) for x in parts[:3]]
+            time_part = [parts[3]]
+
+        if not time_part:
+            hour = minute = 0
+            second = 0.0
+        else:
+            hms = time_part[0].split(":")
+            if len(hms) != 3:
+                raise ValueError(f"Unsupported imaging_time format: {imaging_time}")
+            hour = int(hms[0])
+            minute = int(hms[1])
+            second = float(hms[2])
+
+        second_int = int(np.floor(second))
+        microsecond = int(round((second - second_int) * 1_000_000))
+        if microsecond == 1_000_000:
+            second_int += 1
+            microsecond = 0
+
+        dt = datetime(y, m, d0, hour, minute, second_int, microsecond)
+
+    y, m = dt.year, dt.month
+    day_fraction = (
+        dt.day
+        + (dt.hour + (dt.minute + (dt.second + dt.microsecond / 1_000_000.0) / 60.0) / 60.0) / 24.0
+    )
+
+    if m <= 2:
+        y -= 1
+        m += 12
+
+    a = int(np.floor(y / 100.0))
+    b = 2 - a + int(np.floor(a / 4.0))
+    jd = (
+        int(np.floor(365.25 * (y + 4716)))
+        + int(np.floor(30.6001 * (m + 1)))
+        + day_fraction
+        + b
+        - 1524.5
+    )
+
+    d = jd - 2451545.0
+    T = d / 36525.0
+    return jd, T, d
+
+
 def j2000_to_ecef_matrix(julian_day_offset, julian_century=None):
     """3 × 3 rotation matrix from J2000 to ECEF using the ZXZ model.
 
@@ -162,71 +243,24 @@ def ecef_to_j2000_matrix(julian_day_offset, julian_century=None):
                                 julian_century=julian_century).T
 
 
-def j2000_to_ecef(pos_j2000, julian_day_offset, julian_century=None):
-    """Transform a position vector from J2000 to ECEF.
-
-    Parameters
-    ----------
-    pos_j2000 : array-like, shape (3,) or (N, 3)
-    julian_day_offset : float or array of shape (N,)
-        Day offset ``d`` from J2000 epoch.
-    julian_century : float or array of shape (N,) or None
-        Julian centuries ``T`` from J2000. If None, each sample uses
-        ``T = d / 36525``.
-
-    Returns
-    -------
-    numpy.ndarray, shape (3,) or (N, 3)
-    """
-    pos = np.asarray(pos_j2000, dtype=float)
-    scalar = pos.ndim == 1
-    if scalar:
-        return j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
-                                    julian_century=julian_century) @ pos
-    # Vectorised over multiple positions / day offsets
-    result = np.empty_like(pos)
-    jd_arr = np.asarray(julian_day_offset, dtype=float)
-    jc_arr = None if julian_century is None else np.asarray(julian_century, dtype=float)
-    for i in range(len(pos)):
-        if np.ndim(jd_arr) > 0:
-            jd_i = jd_arr[i]
-        else:
-            jd_i = julian_day_offset
-        if jc_arr is not None and np.ndim(jc_arr) > 0:
-            jc_i = jc_arr[i]
-        else:
-            jc_i = julian_century
-        result[i] = j2000_to_ecef_matrix(julian_day_offset=jd_i,
-                                         julian_century=jc_i) @ pos[i]
-    return result
+def j2000_to_ecef(vector_j2000, julian_day_offset, julian_century=None):
+    """Transform vector(s) from J2000 to ECEF."""
+    vec = np.asarray(vector_j2000, dtype=float)
+    r_j2e = j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
+                                 julian_century=julian_century)
+    return np.einsum("ij,...j->...i", r_j2e, vec)
 
 
-def ecef_to_j2000(pos_ecef, julian_day_offset, julian_century=None):
-    """Transform a position vector from ECEF to J2000."""
-    pos = np.asarray(pos_ecef, dtype=float)
-    scalar = pos.ndim == 1
-    if scalar:
-        return ecef_to_j2000_matrix(julian_day_offset=julian_day_offset,
-                                    julian_century=julian_century) @ pos
-    result = np.empty_like(pos)
-    jd_arr = np.asarray(julian_day_offset, dtype=float)
-    jc_arr = None if julian_century is None else np.asarray(julian_century, dtype=float)
-    for i in range(len(pos)):
-        if np.ndim(jd_arr) > 0:
-            jd_i = jd_arr[i]
-        else:
-            jd_i = julian_day_offset
-        if jc_arr is not None and np.ndim(jc_arr) > 0:
-            jc_i = jc_arr[i]
-        else:
-            jc_i = julian_century
-        result[i] = ecef_to_j2000_matrix(julian_day_offset=jd_i,
-                                         julian_century=jc_i) @ pos[i]
-    return result
+def ecef_to_j2000(vector_ecef, julian_day_offset, julian_century=None):
+    """Transform vector(s) from ECEF to J2000."""
+    vec = np.asarray(vector_ecef, dtype=float)
+    r_e2j = ecef_to_j2000_matrix(julian_day_offset=julian_day_offset,
+                                 julian_century=julian_century)
+    return np.einsum("ij,...j->...i", r_e2j, vec)
 
 
-def attitude_j2000_to_ecef_quaternion(q_body_to_j2000, julian_day_offset,
-                                      julian_century=None):
+def attitude_j2000_to_ecef_quaternion(q_body_to_j2000, julian_day_offset=None,
+                                      julian_century=None, imaging_time=None):
     """Convert body→J2000 quaternion to body→ECEF quaternion.
 
     Time notes
@@ -234,6 +268,16 @@ def attitude_j2000_to_ecef_quaternion(q_body_to_j2000, julian_day_offset,
     Same as :func:`j2000_to_ecef_matrix`: current project may still need to
     refine whether time tags are UTC/UT1/GPS and the exact epoch mapping.
     """
+    if imaging_time is not None:
+        _, inferred_T, inferred_d = datetime_to_julian_params(imaging_time)
+        if julian_day_offset is None:
+            julian_day_offset = inferred_d
+        if julian_century is None:
+            julian_century = inferred_T
+
+    if julian_day_offset is None:
+        raise ValueError("Either julian_day_offset or imaging_time must be provided.")
+
     r_b2j = quaternion_to_rotation_matrix(q_body_to_j2000)
     r_j2e = j2000_to_ecef_matrix(julian_day_offset=julian_day_offset,
                                  julian_century=julian_century)

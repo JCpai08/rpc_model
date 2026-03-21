@@ -77,15 +77,6 @@ class AttitudeData:
 
     
     def to_arrays(self) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Returns
-        -------
-        times: np.ndarray
-            Time codes
-        quaternions: np.ndarray
-            Quaternions
-        
-        """
         times = np.array([s.time_code for s in self.samples], dtype=float)
         quaternions = np.array([[s.q1, s.q2, s.q3, s.q4] for s in self.samples], dtype=float)
         return times, quaternions
@@ -361,6 +352,5 @@ def load_nad_bundle(
         "gps": NADDataParser.parse_gps(paths["gps"]),
         "attitude": NADDataParser.parse_attitude(paths["attitude"]),
         "imaging_time": NADDataParser.parse_imaging_time(paths["imaging_time"]),
-        "nad_cbr": NADDataParser.parse_cbr(paths["cbr"]),
-        "nad_txt": NADDataParser.parse_nad_txt(paths["nad_txt"])
+        "nad_cbr": NADDataParser.parse_cbr(paths["cbr"])
     }

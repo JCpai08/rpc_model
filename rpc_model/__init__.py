@@ -16,8 +16,10 @@ from .coord_transform import (
     ecef_to_geodetic,
     j2000_to_ecef,
     ecef_to_j2000,
+    datetime_to_julian_params,
     j2000_to_ecef_matrix,
     quaternion_to_rotation_matrix,
+    rotation_matrix_to_quaternion,
     attitude_j2000_to_ecef_quaternion,
 )
 
@@ -38,8 +40,8 @@ from .data_parser import (
 __all__ = [
     "WGS84_A", "WGS84_B", "WGS84_E2", "WGS84_F", "GM", "OMEGA_E",
     "geodetic_to_ecef", "ecef_to_geodetic",
-    "j2000_to_ecef", "ecef_to_j2000", "j2000_to_ecef_matrix",
-    "quaternion_to_rotation_matrix",
+    "j2000_to_ecef", "ecef_to_j2000", "datetime_to_julian_params", "j2000_to_ecef_matrix",
+    "quaternion_to_rotation_matrix", "rotation_matrix_to_quaternion",
     "attitude_j2000_to_ecef_quaternion",
     "lagrange_interpolation", "interpolate_attitude",
     "OrbitInterpolator", "AttitudeInterpolator",
