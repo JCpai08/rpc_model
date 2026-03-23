@@ -19,7 +19,13 @@ Reference conventions
 
 import numpy as np
 from datetime import datetime
-from .constants import WGS84_A, WGS84_B, WGS84_E2
+
+try:
+    from .constants import WGS84_A, WGS84_B, WGS84_E2
+    from .constants import UTC_TT_OFFSET
+except ImportError:  # pragma: no cover - script mode fallback
+    from constants import WGS84_A, WGS84_B, WGS84_E2
+    from constants import UTC_TT_OFFSET
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +128,7 @@ def rot_x(angle):
 
 def datetime_to_julian_params(imaging_time):
     """Convert imaging time to Julian parameters (JD, T, d).
-
+    time example: "2000 01 01 11:58:55.816000"
     Parameters
     ----------
     imaging_time : str or datetime
@@ -194,7 +200,9 @@ def datetime_to_julian_params(imaging_time):
         + b
         - 1524.5
     )
-
+    
+    offset_days = UTC_TT_OFFSET / 86400.0
+    jd += offset_days
     d = jd - 2451545.0
     T = d / 36525.0
     return jd, T, d
@@ -347,3 +355,7 @@ def rotation_matrix_to_quaternion(R):
         qz = 0.25 * s
     q = np.array([qw, qx, qy, qz])
     return q / np.linalg.norm(q)
+
+if __name__ == "__main__":
+    jd, T, d = datetime_to_julian_params("2000 01 01 11:58:55.816000")
+    print(jd, T, d)

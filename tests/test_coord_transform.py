@@ -75,8 +75,8 @@ class TestGeodeticECEF:
 
 class TestJ2000ECEF:
     def test_datetime_to_julian_j2000_epoch(self):
-        """J2000 epoch (2000-01-01 12:00:00) should map to d=0, T=0."""
-        jd, T, d = datetime_to_julian_params("2000 01 01 12:00:00.000000")
+        """J2000 epoch (2000-01-01 11:58:55.816000 UTC) should map to d=0, T=0."""
+        jd, T, d = datetime_to_julian_params("2000 01 01 11:58:55.816000")
         np.testing.assert_allclose(jd, 2451545.0, atol=1e-9)
         np.testing.assert_allclose(d, 0.0, atol=1e-12)
         np.testing.assert_allclose(T, 0.0, atol=1e-15)

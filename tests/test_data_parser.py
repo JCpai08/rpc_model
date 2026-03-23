@@ -49,7 +49,7 @@ class TestNADRawParsers:
         assert np.all(np.diff(imt.times) > 0.0)
 
     def test_parse_cbr(self):
-        cbr = NADDataParser.parse_cbr(data_file("cbr"))
+        cbr = NADDataParser.parse_cbr(data_file("nad_cbr"))
         assert cbr.declared_count == 8192
         assert len(cbr.column_indices) == 8192
         assert len(cbr.angle_1) == 8192
@@ -64,20 +64,9 @@ class TestNADRawParsers:
         assert nad.roll == 0.0
         assert nad.yaw == 0.0
 
-    def test_parse_example_rpc(self):
-        rpc = NADDataParser.parse_example_rpc(data_file("example_rpc"))
-        assert "LINE_OFF" in rpc.scalar
-        assert "SAMP_OFF" in rpc.scalar
-        assert rpc.line_num_coeff.shape == (20,)
-        assert rpc.line_den_coeff.shape == (20,)
-        assert rpc.samp_num_coeff.shape == (20,)
-        assert rpc.samp_den_coeff.shape == (20,)
-        np.testing.assert_allclose(rpc.line_den_coeff[0], 1.0, atol=1e-12)
-        np.testing.assert_allclose(rpc.samp_den_coeff[0], 1.0, atol=1e-12)
-
     def test_load_bundle(self):
         bundle = load_nad_bundle(config_path=CONFIG_PATH)
-        expected_keys = {"orbit", "attitude", "imaging_time", "cbr", "nad_txt", "example_rpc"}
+        expected_keys = {"gps", "attitude", "imaging_time", "nad_cbr"}
         assert set(bundle.keys()) == expected_keys
 
     def test_load_bundle_with_json_config(self, tmp_path):
@@ -90,5 +79,5 @@ class TestNADRawParsers:
         )
 
         bundle = load_nad_bundle(config_path=cfg_path)
-        expected_keys = {"orbit", "attitude", "imaging_time", "cbr", "nad_txt", "example_rpc"}
+        expected_keys = {"gps", "attitude", "imaging_time", "nad_cbr"}
         assert set(bundle.keys()) == expected_keys
